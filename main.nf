@@ -19,7 +19,7 @@ params.help = null
 
 log.info ""
 log.info "--------------------------------------------------------"
-log.info "  <PROGRAM_NAME> <VERSION>: <SHORT DESCRIPTION>         "
+log.info "  DPclust-nf V1.0: nextflow pipeline to run DPclust     "
 log.info "--------------------------------------------------------"
 log.info "Copyright (C) IARC/WHO"
 log.info "This program comes with ABSOLUTELY NO WARRANTY; for details see LICENSE"
@@ -50,20 +50,40 @@ if (params.help) {
 log.info "help:                               ${params.help}"
 }
 
-str = Channel.from('hello', 'hola', 'bonjour', 'ciao')
+params.CNV_file = null
+params.CNV_summary_file = null
+params.vcf_folder = '.'
+params.bam_input_file = null
+params.fai = null
+params.ign = null
 
-process printHello {
+params.ext = "cram"
+ext_ind    = ".crai"
+if(params.ext=="bam"){ ext_ind=".bai"}
+
+// create channel with information about individual samples
+bams = Channel.fromPath(params.bam_input_file).splitCsv(header: true, sep: '\t', strip: true)
+                        .map{ row -> [ row.sample , file(row.tumor), file(row.tumor+ext_ind), file(row.vcf) ] }
+
+process preproc_DPclust {
+    memory params.mem+'GB'
+    cpus params.cpu
+    tag { sample }
 
     input:
-    val str
-
+    file file_C from params.CNV_file
+    file file_s from params.CNV_summary_file
+    string sample, file bam, file vcf from bams
+  
     output:
-    stdout into result
+    file '${sample}*.txt'
 
     shell:
     '''
-    echo !{str}
+    Rscript ${baseDir}/bin/preproc_DPclust.R -C ${file_C} -s ${file_s} -l ${sample} -v ${vcf} -t ${bam}
     '''
 }
 
-result.println()
+workflow main {
+  preproc_DPclust(bams)
+}

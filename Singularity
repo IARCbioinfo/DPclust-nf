@@ -2,8 +2,8 @@ From:nfcore/base
 Bootstrap:docker
 
 %labels
-    MAINTAINER **username** <**usermail**>
-    DESCRIPTION Container image containing all requirements for **name of the pipeline**
+    MAINTAINER **alcalan** <**alcalan@iarc.who.int**>
+    DESCRIPTION Container image containing all requirements for pipeline DPclust-nf
     VERSION 1.0
 
 %files
@@ -16,7 +16,4 @@ Bootstrap:docker
 
 
 
-
-
-# environment.yml commit ID: c92804b
 
