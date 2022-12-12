@@ -54,8 +54,8 @@ params.CNV_file = null
 params.CNV_summary_file = null
 params.vcf_folder = '.'
 params.bam_input_file = null
-params.fai = null
-params.ign = null
+params.fai = ${baseDir}/data/hs38DH.fa.fai
+params.ign = ${baseDir}/data/ign_file
 
 params.ext = "cram"
 ext_ind    = ".crai"
@@ -65,14 +65,18 @@ if(params.ext=="bam"){ ext_ind=".bai"}
 bams = Channel.fromPath(params.bam_input_file).splitCsv(header: true, sep: '\t', strip: true)
                         .map{ row -> [ row.sample , file(row.tumor), file(row.tumor+ext_ind), file(row.vcf) ] }
 
+// create channels with files
+
 process preproc_DPclust {
     memory params.mem+'GB'
     cpus params.cpu
     tag { sample }
 
     input:
-    file file_C from params.CNV_file
-    file file_s from params.CNV_summary_file
+    path file_C
+    path file_s
+    path fai
+    path ign
     string sample, file bam, file vcf from bams
   
     output:
@@ -85,5 +89,5 @@ process preproc_DPclust {
 }
 
 workflow main {
-  preproc_DPclust(bams)
+  preproc_DPclust(params.CNV_file,params.CNV_summary_file,params.fai,params.ign, bams)
 }
