@@ -1,6 +1,19 @@
-name: template-nf
+name: DPclust-nf
 channels:
   - conda-forge
   - bioconda
 dependencies:
-  - samtools=1.8
+  - r-optparse
+  - bioconductor-variantannotation
+  - bioconductor-genomicranges
+  - bioconductor-rsamtools
+  - r-ggplot2
+  - bioconductor-iranges
+  - bioconductor-s4vectors
+  - r-reshape2
+  - r-kernsmooth
+  - r-ks
+  - r-lattice
+  - r-gridExtra
+  - r-devtools
+  - r-tidyverse

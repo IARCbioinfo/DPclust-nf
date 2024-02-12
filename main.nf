@@ -47,47 +47,111 @@ if (params.help) {
     exit 0
 } else {
 /* Software information */
+log.info "input_file = ${params.input_file}"
+log.info "output_folder    = ${params.output_folder}"
 log.info "help:                               ${params.help}"
 }
 
 params.CNV_file = null
 params.CNV_summary_file = null
 params.vcf_folder = '.'
-params.bam_input_file = null
-params.fai = ${baseDir}/data/hs38DH.fa.fai
-params.ign = ${baseDir}/data/ign_file
+params.input_file = null
+params.bam_input_folder = null
+params.bam_folder = ""
+params.fai = "${projectDir}/data/hs38DH.fa.fai"
+params.ign = "${projectDir}/data/ign_file"
 
 params.ext = "cram"
 ext_ind    = ".crai"
 if(params.ext=="bam"){ ext_ind=".bai"}
 
-// create channel with information about individual samples
-bams = Channel.fromPath(params.bam_input_file).splitCsv(header: true, sep: '\t', strip: true)
-                        .map{ row -> [ row.sample , file(row.tumor), file(row.tumor+ext_ind), file(row.vcf) ] }
-
-// create channels with files
-
-process preproc_DPclust {
-    memory params.mem+'GB'
+process preprocDPclust{
     cpus params.cpu
-    tag { sample }
+    memory params.mem+'GB'
+    tag {sample}
 
     input:
     path file_C
     path file_s
     path fai
     path ign
-    string sample, file bam, file vcf from bams
-  
-    output:
-    file '${sample}*.txt'
+    tuple val(sample), file(bam), file(bai), file(vcf)
 
-    shell:
+    output:
+        tuple val(sample), path("${sample}*.txt")
+    publishDir "${params.output_folder}/DPclust_inputs", mode: "copy"
+    
+   shell:
     '''
-    Rscript ${baseDir}/bin/preproc_DPclust.R -C ${file_C} -s ${file_s} -l ${sample} -v ${vcf} -t ${bam}
+    ln -s !{projectDir}/bin/preproc_dpclust_master_file.R .
+    Rscript !{projectDir}/bin/preproc_for_DPclust.R -c !{file_C} -s !{file_s} -n !{sample} -v !{vcf} -t !{bam} -f !{fai} -g !{ign}
     '''
 }
 
-workflow main {
-  preproc_DPclust(params.CNV_file,params.CNV_summary_file,params.fai,params.ign, bams)
+process runDPclust{
+    cpus params.cpu
+    memory params.mem+'GB'
+    tag {sample}
+
+    input:
+    tuple val(sample), path(DPinput)
+
+    output:
+    tuple val(sample), path("${sample}")
+    publishDir "${params.output_folder}/results/DPclust", mode: "copy"
+
+    shell:
+    '''
+    ln -s !{projectDir}/bin/dpclust_pipeline.R .
+    Rscript !{projectDir}/bin/run_DPclust.R
+    mv DPclust !{sample}
+    '''
+}
+
+process DPclust_postproc{
+    cpus params.cpu
+    memory params.mem+'GB'
+    tag {sample}
+
+    input:
+    tuple val(sample), path(DPoutput)
+
+    output:
+    tuple val(sample), path("${sample}*.pdf") , path("${sample}*.Rdata")
+    publishDir "${params.output_folder}/results/DPclust", mode: "copy"
+
+    shell:
+    '''
+    Rscript !{projectDir}/bin/postproc_DPclust.R
+    mv Cluster_CCF.pdf !{sample}_Cluster_CCF.pdf
+    mv dataset_fracs_list.Rdata !{sample}_dataset_fracs_list.Rdata
+    '''
+}
+
+process mutationtimeR{
+    cpus params.cpu
+    memory params.mem+'GB'
+    tag {sample}
+
+    input:
+    tuple path(DPinput)
+
+    output:
+    path "results*"
+    publishDir "${params.output_folder}/results/MutationTimeR", mode: "copy"
+
+    shell:
+    '''
+    Rscript !{projectDir}/bin/run_mutationtimeR.R -i !{DPinput}
+    '''
+}
+
+workflow {
+  // create channel with information about individual samples
+  bams = Channel.fromPath("${params.input_file}")
+                .splitCsv(header: true, sep: '\t', strip: true)
+                        .map{ row -> [ row.sampleID , file(params.bam_folder+row.tumor), 
+                        file(params.bam_folder+row.tumor+ext_ind), file(params.vcf_folder + row.vcf)] }
+
+  preprocDPclust(params.CNV_file,params.CNV_summary_file,params.fai,params.ign, bams) | runDPclust | DPclust_postproc
 }
