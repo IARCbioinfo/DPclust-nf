@@ -1,6 +1,6 @@
 #! /usr/bin/env nextflow
 
-// Copyright (C) 2017 IARC/WHO
+// Copyright (C) 2024 IARC/WHO
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,31 +33,46 @@ if (params.help) {
     log.info "  USAGE                                                 "
     log.info "--------------------------------------------------------"
     log.info ""
-    log.info "nextflow run iarcbioinfo/template-nf [-with-docker] [OPTIONS]"
+    log.info "nextflow run iarcbioinfo/DPclust-nf [-with-docker] [OPTIONS]"
     log.info ""
     log.info "Mandatory arguments:"
-    log.info "--<OPTION>                      <TYPE>                      <DESCRIPTION>"
+    log.info "--CNV_file                      FILE                      Path to tab-separated file with copy number variants for all samples"
+    log.info "--CNV_summary_file              FILE                      Path to tab-separated file with copy number summary for all samples (in PURPLE output format)"
+    log.info "--input_file                    FILE                      Path to Input file (tab-separated values) with 4 columns: sampleID, vcf, normal, and tumor"
     log.info ""
     log.info "Optional arguments:"
-    log.info "--<OPTION>                      <TYPE>                      <DESCRIPTION>"
+    log.info "--vcf_folder                    FOLDER                    Path to folder with variants for all samples in VCF format (default: .)"
+    log.info "--bam_folder                    FOLDER                    Path to folder with BAM/CRAM files for tumor and normal samples (default: .)"
+    log.info '--output_folder                 FOLDER                    Output folder (default: .).'
+    log.info '--cpu                           INTEGER                   Number of cpu used by bwa mem and sambamba (default: 2).'
+    log.info '--mem                           INTEGER                   Size of memory used for mapping (in GB) (default: 8).'
     log.info ""
     log.info "Flags:"
-    log.info "--<FLAG>                                                    <DESCRIPTION>"
+    log.info "--help                                                    Display help"
     log.info ""
     exit 0
 } else {
 /* Software information */
-log.info "input_file = ${params.input_file}"
-log.info "output_folder    = ${params.output_folder}"
-log.info "help:                               ${params.help}"
+    log.info "CNV_file         = ${params.CNV_file}"
+    log.info "CNV_summary_file = ${params.CNV_summary_file}"
+    log.info "input_file       = ${params.input_file}"
+
+    log.info "vcf_folder       = ${params.vcf_folder}"
+    log.info "bam_folder       = ${params.bam_folder}"
+    log.info "output_folder    = ${params.output_folder}"
+    log.info "cpu              = ${params.cpu}"
+    log.info "mem              = ${params.mem}"
+    log.info "help:              ${params.help}"
 }
 
 params.CNV_file = null
 params.CNV_summary_file = null
-params.vcf_folder = '.'
+params.vcf_folder = './'
 params.input_file = null
 params.bam_input_folder = null
-params.bam_folder = ""
+params.bam_folder = "./"
+params.cpu = 2
+params.mem = 8
 params.fai = "${projectDir}/data/hs38DH.fa.fai"
 params.ign = "${projectDir}/data/ign_file"
 
@@ -78,8 +93,8 @@ process preprocDPclust{
     tuple val(sample), file(bam), file(bai), file(vcf)
 
     output:
-        tuple val(sample), path("${sample}*.txt")
-    publishDir "${params.output_folder}/DPclust_inputs", mode: "copy"
+        tuple val(sample), path(vcf) , path("${sample}*.txt")
+    publishDir "${params.output_folder}/DPclust_inputs/${sample}", mode: "copy", pattern: '{*.txt}'
     
    shell:
     '''
@@ -94,11 +109,11 @@ process runDPclust{
     tag {sample}
 
     input:
-    tuple val(sample), path(DPinput)
+    tuple val(sample), path(vcf), path(DPinput)
 
     output:
-    tuple val(sample), path("${sample}")
-    publishDir "${params.output_folder}/results/DPclust", mode: "copy"
+    tuple val(sample), path(vcf), path("${sample}"), path(DPinput)
+    publishDir "${params.output_folder}/results/DPclust", mode: "copy", pattern: "${sample}"
 
     shell:
     '''
@@ -114,17 +129,19 @@ process DPclust_postproc{
     tag {sample}
 
     input:
-    tuple val(sample), path(DPoutput)
+    tuple val(sample), path(vcf), path(DPoutput), path(DPinput)
 
     output:
-    tuple val(sample), path("${sample}*.pdf") , path("${sample}*.Rdata")
-    publishDir "${params.output_folder}/results/DPclust", mode: "copy"
+    tuple val(sample), path(vcf), path("${sample}_cluster_locations.tsv")
+    tuple path("${sample}*.Rdata"), path("${sample}*.pdf")
+    publishDir "${params.output_folder}/results/DPclust/${sample}", mode: "copy", pattern: '*{.pdf,.Rdata,cluster_locations.tsv}'
 
     shell:
     '''
     Rscript !{projectDir}/bin/postproc_DPclust.R
     mv Cluster_CCF.pdf !{sample}_Cluster_CCF.pdf
     mv dataset_fracs_list.Rdata !{sample}_dataset_fracs_list.Rdata
+    mv cluster_locations.tsv !{sample}_cluster_locations.tsv
     '''
 }
 
@@ -134,19 +151,22 @@ process mutationtimeR{
     tag {sample}
 
     input:
-    tuple path(DPinput)
+    path CNV
+    path CNVsummary
+    tuple val(sample), path(vcf), path(cluster_locations)
 
     output:
-    path "results*"
+    path "${sample}*tim*"
     publishDir "${params.output_folder}/results/MutationTimeR", mode: "copy"
 
     shell:
     '''
-    Rscript !{projectDir}/bin/run_mutationtimeR.R -i !{DPinput}
+    Rscript !{projectDir}/bin/run_mutationtimeR.R -n !{sample} -v !{vcf} -c !{CNV} -s !{CNVsummary} -k !{cluster_locations}
+    touch done
     '''
 }
 
-workflow {
+workflow{
   // create channel with information about individual samples
   bams = Channel.fromPath("${params.input_file}")
                 .splitCsv(header: true, sep: '\t', strip: true)
@@ -154,4 +174,7 @@ workflow {
                         file(params.bam_folder+row.tumor+ext_ind), file(params.vcf_folder + row.vcf)] }
 
   preprocDPclust(params.CNV_file,params.CNV_summary_file,params.fai,params.ign, bams) | runDPclust | DPclust_postproc
+
+  mutationtimeR(params.CNV_file,params.CNV_summary_file,DPclust_postproc.out[0] )
+
 }
