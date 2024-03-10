@@ -22,12 +22,6 @@ Nextflow pipeline to run tumor subclone detection software DPclust, perform post
   
 ## Parameters
 
-  * #### Mandatory
-| Name      | Example value | Description     |
-|-----------|---------------|-----------------|
-| --param1    |            xx | ...... |
-| --param2    |            xx | ...... |
-
   * #### Optional
 | Name      | Default value | Description     |
 |-----------|---------------|-----------------|
